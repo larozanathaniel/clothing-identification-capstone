@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent Laundry Management System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Navigation Sidebar -->
+        <nav id="sidebar" class="hidden">
+            <div class="logo">Laundry Mgmt v1.0</div>
+            <ul>
+                <li onclick="navigateTo('intake')">Intake Station</li>
+                <li onclick="navigateTo('batches')">Active Batches</li>
+                <li onclick="navigateTo('sorting')">Sorting Station</li>
+                <li onclick="navigateTo('verification')">Manual Verification</li>
+                <li onclick="navigateTo('admin')">Admin Dashboard</li>
+                <li onclick="logout()" class="logout">Logout</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main id="main-content">
+            
+            <!-- Login Screen -->
+            <section id="login-screen" class="screen active">
+                <div class="header-bar">
+                    <h2>SYSTEM LOGO</h2>
+                    <span class="badge">v1.0</span>
+                </div>
+                <div class="card login-card">
+                    <h3>[ Laundry Mgmt. System ]</h3>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="username" placeholder="">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="password" placeholder="">
+                    </div>
+                    <button class="btn-primary" onclick="login()">LOG IN</button>
+                    <p class="subtext">Role auto-detected via RBAC (Staff / Admin)</p>
+                </div>
+            </section>
+
+            <!-- Intake Station -->
+            <section id="intake-screen" class="screen">
+                <div class="header-bar">
+                    <h2>INTAKE STATION</h2>
+                    <span class="badge role-badge">Staff</span>
+                </div>
+                <div class="card">
+                    <div class="intake-form">
+                        <div class="form-group w-full">
+                            <label>Customer Name</label>
+                            <input type="text">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Batch ID</label>
+                                <input type="text" value="AUTO-####" readonly>
+                            </div>
+                            <div class="form-group">
+                                <label>Item Count</label>
+                                <input type="number" value="0" readonly>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="camera-preview">
+                        <p>[ LIVE CAMERA PREVIEW ]<br>(WebRTC feed)</p>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn-secondary">📷 CAPTURE SCAN</button>
+                        <button class="btn-secondary">⬆ UPLOAD PHOTO</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Active Batches -->
+            <section id="batches-screen" class="screen">
+                <div class="header-bar">
+                    <h2>ACTIVE BATCHES</h2>
+                    <span class="badge role-badge">Staff/Admin</span>
+                </div>
+                <div class="card">
+                    <div class="tabs">
+                        <button class="tab active">Open</button>
+                        <button class="tab">Washing</button>
+                        <button class="tab">Ready to Sort</button>
+                        <button class="tab">Completed</button>
+                    </div>
+                    <div class="search-bar">
+                        <input type="text" placeholder="🔍 Search batch / customer">
+                    </div>
+                    <div class="batch-list">
+                        <!-- Example data removed as requested -->
+                        <div class="empty-state">No active batches found.</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sorting Station -->
+            <section id="sorting-screen" class="screen">
+                <div class="header-bar">
+                    <h2>SORTING STATION</h2>
+                    <span class="badge">Batch #----</span>
+                </div>
+                <div class="card">
+                    <div class="camera-preview">
+                        <p>[ LIVE CAMERA PREVIEW ]<br>(post-wash rescan)</p>
+                    </div>
+                    <button class="btn-primary w-full">📹 RESCAN ITEM</button>
+                    
+                    <div class="sorting-results hidden" id="sort-result">
+                        <div class="scanned-img">
+                            <p>scanned img</p>
+                        </div>
+                        <div class="match-info">
+                            <p><strong>Match: </strong> --</p>
+                            <p class="text-sm">Similarity: --</p>
+                            <span class="badge success">RECOGNIZED</span>
+                        </div>
+                    </div>
+                    <button class="btn-success w-full mt-2">✓ CONFIRM & SORT</button>
+                </div>
+            </section>
+
+            <!-- Manual Verification -->
+            <section id="verification-screen" class="screen">
+                <div class="header-bar">
+                    <h2>MANUAL VERIFICATION</h2>
+                    <span class="badge warning">Low Confidence</span>
+                </div>
+                <div class="card">
+                    <p class="text-center text-sm">No confident match found — select correct owner</p>
+                    <div class="camera-preview small-preview">
+                        <p>[ scanned item image ]</p>
+                    </div>
+                    
+                    <div class="candidates-list">
+                        <p class="text-sm">Closest candidates in this batch:</p>
+                        <!-- Example data removed -->
+                        <div class="empty-state">No candidates available.</div>
+                    </div>
+
+                    <div class="btn-group mt-2">
+                        <button class="btn-primary">✓ CONFIRM SELECTED</button>
+                        <button class="btn-warning">⚠ FLAG UNRESOLVED</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Admin Dashboard -->
+            <section id="admin-screen" class="screen">
+                <div class="header-bar">
+                    <h2>ADMIN DASHBOARD</h2>
+                    <span class="badge role-badge">Admin</span>
+                </div>
+                <div class="card">
+                    <div class="stats-grid">
+                        <div class="stat-box">
+                            <h3>0</h3>
+                            <p>Active Batches</p>
+                        </div>
+                        <div class="stat-box">
+                            <h3>0%</h3>
+                            <p>Match Accuracy</p>
+                        </div>
+                        <div class="stat-box">
+                            <h3>0.0s</h3>
+                            <p>Avg. Match Time</p>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-area">
+                        <p>[ throughput chart ]</p>
+                    </div>
+
+                    <div class="user-management mt-2">
+                        <p class="text-sm">Staff / User Management (RBAC)</p>
+                        <div class="user-list">
+                            <!-- Example data removed -->
+                            <div class="empty-state">No users configured.</div>
+                        </div>
+                        <button class="btn-secondary w-full mt-2">+ ADD USER</button>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
