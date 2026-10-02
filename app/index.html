@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent Laundry Management System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Navigation Sidebar -->
+        <nav id="sidebar" class="hidden">
+            <div class="logo">Laundry Mgmt v1.0</div>
+            <ul id="nav"></ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main id="main-content">
+            
+            <!-- Login Screen -->
+            <section id="login-screen" class="screen active">
+                <div class="header-bar">
+                    <h2>SYSTEM LOGO</h2>
+                    <span class="badge">v1.0</span>
+                </div>
+                <div class="card login-card">
+                    <h3>[ Laundry Mgmt. System ]</h3>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="username" placeholder="">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="password" placeholder="">
+                    </div>
+                    <button class="btn-primary" onclick="login()">LOG IN</button>
+                    <p class="err" id="login-err"></p>
+                    <p class="subtext">Role auto-detected via RBAC (Staff / Admin)<br>Demo: staff / staff123 &middot; admin / admin123</p>
+                </div>
+            </section>
+
+            <!-- Staff Dashboard -->
+            <section id="dashboard-screen" class="screen">
+                <div class="header-bar"><h2>STAFF DASHBOARD</h2><span class="badge role-badge">Staff</span></div>
+                <div class="card" id="dash-body"></div>
+            </section>
+
+            <!-- Intake Station -->
+            <section id="intake-screen" class="screen">
+                <div class="header-bar"><h2>INTAKE STATION</h2><span class="badge role-badge">Staff</span></div>
+                <div class="card">
+                    <div class="form-group w-full"><label>Customer Name</label><input type="text" id="in-name" oninput="draft.name=this.value"></div>
+                    <div class="form-row">
+                        <div class="form-group"><label>Batch ID</label><input type="text" id="in-id" readonly></div>
+                        <div class="form-group"><label>Item Count</label><input type="number" id="in-count" value="0" readonly></div>
+                    </div>
+                    <div class="camera-preview"><video autoplay playsinline muted></video><p class="cam-msg">Starting camera&hellip;</p></div>
+                    <div class="btn-group">
+                        <button class="btn-secondary" onclick="capture('intake')">&#128247; CAPTURE SCAN</button>
+                        <button class="btn-secondary" onclick="pickFile('intake')">&#11014; UPLOAD PHOTO</button>
+                    </div>
+                    <div class="thumbs" id="in-thumbs"></div>
+                    <div class="btn-group mt-2">
+                        <button class="btn-secondary" onclick="resetDraft()">CLEAR</button>
+                        <button class="btn-primary" onclick="saveBatch()">SAVE BATCH</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Active Batches -->
+            <section id="batches-screen" class="screen">
+                <div class="header-bar"><h2>ACTIVE BATCHES</h2><span class="badge role-badge">Staff/Admin</span></div>
+                <div class="card">
+                    <div class="tabs" id="tabs"></div>
+                    <div class="search-bar"><input type="text" id="search" placeholder="&#128269; Search batch / customer" oninput="renderBatches()"></div>
+                    <div class="batch-list" id="batch-list"></div>
+                </div>
+            </section>
+
+            <!-- Batch Details -->
+            <section id="detail-screen" class="screen">
+                <div class="header-bar"><h2 id="d-title">BATCH DETAILS</h2><span class="badge" id="d-status"></span></div>
+                <div class="card" id="detail-body"></div>
+            </section>
+
+            <!-- Sorting Station -->
+            <section id="sorting-screen" class="screen">
+                <div class="header-bar"><h2>SORTING STATION</h2><span class="badge" id="s-badge">Batch #----</span></div>
+                <div class="card">
+                    <div class="form-group"><label>Batch (Ready to Sort)</label><select id="s-batch" onchange="pickSortBatch(this.value)"></select></div>
+                    <p class="text-sm" id="s-progress"></p>
+                    <div class="camera-preview"><video autoplay playsinline muted></video><p class="cam-msg">Starting camera&hellip;</p></div>
+                    <div class="btn-group">
+                        <button class="btn-primary" id="s-scan" onclick="capture('sort')">&#128249; RESCAN ITEM</button>
+                        <button class="btn-secondary" onclick="pickFile('sort')">&#11014; UPLOAD PHOTO</button>
+                    </div>
+                    <div class="sorting-results hidden" id="sort-result"></div>
+                    <button class="btn-success w-full mt-2" id="s-confirm" onclick="confirmSort()" disabled>&#10003; CONFIRM &amp; SORT</button>
+                </div>
+            </section>
+
+            <!-- Manual Verification -->
+            <section id="verification-screen" class="screen">
+                <div class="header-bar"><h2>MANUAL VERIFICATION</h2><span class="badge warning">Low Confidence</span></div>
+                <div class="card" id="verify-body"></div>
+            </section>
+
+            <!-- Unresolved Items -->
+            <section id="unresolved-screen" class="screen">
+                <div class="header-bar"><h2>UNRESOLVED ITEMS</h2><span class="badge warning" id="u-count">0</span></div>
+                <div class="card" id="unres-body"></div>
+            </section>
+
+            <!-- Batch Complete Summary -->
+            <section id="summary-screen" class="screen">
+                <div class="header-bar"><h2>BATCH COMPLETE</h2><span class="badge success">Completed</span></div>
+                <div class="card text-center" id="summary-body"></div>
+            </section>
+
+            <!-- Admin Dashboard -->
+            <section id="admin-screen" class="screen">
+                <div class="header-bar"><h2>ADMIN DASHBOARD</h2><span class="badge role-badge">Admin</span></div>
+                <div class="card" id="admin-body"></div>
+            </section>
+
+            <!-- Change Password -->
+            <section id="password-screen" class="screen">
+                <div class="header-bar"><h2>CHANGE PASSWORD</h2><span class="badge role-badge" id="pw-role"></span></div>
+                <div class="card">
+                    <div class="form-group"><label>Current Password</label><input type="password" id="pw-old"></div>
+                    <div class="form-group"><label>New Password (min 6 chars)</label><input type="password" id="pw-new"></div>
+                    <div class="form-group"><label>Confirm New Password</label><input type="password" id="pw-new2"></div>
+                    <p class="err" id="pw-err"></p>
+                    <button class="btn-primary" onclick="changePassword()">UPDATE PASSWORD</button>
+                </div>
+            </section>
+
+        </main>
+        <div id="modal" class="modal hidden"><div class="modal-box" id="modal-box"></div></div>
+        <div id="toast" class="toast hidden"></div>
+        <input type="file" id="file" accept="image/*" hidden>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
