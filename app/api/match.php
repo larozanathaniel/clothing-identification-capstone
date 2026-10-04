@@ -3,78 +3,71 @@ require_once __DIR__ . '/db.php';
 require_role(['staff']);
 require_once __DIR__ . '/image_matcher.php';
 
-$data = get_json_input();
-$batch_id = $data['batch_id'] ?? null;
+$data       = get_json_input();
+$batch_id   = $data['batch_id']    ?? null;
 $scanned_img = $data['scanned_img'] ?? null;
 
 if (!$batch_id || !$scanned_img) {
     send_json(['error' => 'batch_id and scanned_img are required'], 400);
 }
 
-// Fetch batch and items
-$stmt = $pdo->prepare("SELECT * FROM batches WHERE id = ?");
+// Fetch batch
+$stmt = $pdo->prepare("SELECT * FROM batches WHERE batch_id = ?");
 $stmt->execute([$batch_id]);
 $batch = $stmt->fetch();
+if (!$batch) send_json(['error' => 'Batch not found'], 404);
 
-if (!$batch) {
-    send_json(['error' => 'Batch not found'], 404);
-}
+// Fetch pending garments in this batch
+$gs = $pdo->prepare(
+    "SELECT * FROM garments WHERE batch_id = ? AND match_type = 'pending'"
+);
+$gs->execute([$batch_id]);
+$pending = $gs->fetchAll();
 
-$i_stmt = $pdo->prepare("SELECT * FROM items WHERE batch_id = ? AND st = 'pending'");
-$i_stmt->execute([$batch_id]);
-$pending_items = $i_stmt->fetchAll();
-
-if (empty($pending_items)) {
+if (empty($pending)) {
     send_json(['error' => 'Nothing left to match in this batch'], 400);
 }
 
-// Fetch match threshold setting
-$thr_stmt = $pdo->query("SELECT value FROM settings WHERE key = 'thr'");
-$thr = (int)($thr_stmt->fetch()['value'] ?? 80);
+// Fetch threshold
+$thr_row = $pdo->query("SELECT value FROM settings WHERE `key` = 'thr'")->fetch();
+$thr = (int)($thr_row['value'] ?? 80);
 
 $t0 = microtime(true);
 
 $candidate_list = [];
-foreach ($pending_items as $item) {
-    $sim = compare_garment_images($scanned_img, $item['img']);
+foreach ($pending as $g) {
+    $sim = compare_garment_images($scanned_img, $g['intake_image'] ?? '');
     $candidate_list[] = [
-        'id' => $item['id'],
-        'name' => $item['name'],
-        'img' => $item['img'],
-        'sim' => $sim
+        'id'   => (string)$g['garment_id'],
+        'name' => $g['garment_name'] ?? 'Item',
+        'img'  => $g['intake_image'] ?? '',
+        'sim'  => $sim
     ];
 }
 
-// Sort candidates by similarity descending
-usort($candidate_list, function($a, $b) {
-    return $b['sim'] - $a['sim'];
-});
+usort($candidate_list, fn($a, $b) => $b['sim'] - $a['sim']);
 
-$duration = microtime(true) - $t0;
-// Round duration to 1 decimal place or minimum 0.2s
-$duration = max(0.2, round($duration, 2));
+$duration = max(0.2, round(microtime(true) - $t0, 2));
+$top      = $candidate_list[0];
+$is_auto  = ($top['sim'] >= $thr) ? 1 : 0;
 
-$top = $candidate_list[0];
-$is_auto = ($top['sim'] >= $thr) ? 1 : 0;
-
-// Log match execution timing
-$log_stmt = $pdo->prepare("INSERT INTO match_logs (batch_id, match_time, is_auto, created_at) VALUES (?, ?, ?, ?)");
-$log_stmt->execute([$batch_id, $duration, $is_auto, time() * 1000]);
+// Log to match_logs
+$pdo->prepare(
+    "INSERT INTO match_logs (batch_id, match_time, is_auto) VALUES (?, ?, ?)"
+)->execute([$batch_id, $duration, $is_auto]);
 
 send_json([
-    'success' => true,
-    'bid' => (string)$batch_id,
-    'scan' => $scanned_img,
-    'thr' => $thr,
-    'duration' => $duration,
-    'list' => array_map(function($c) {
-        return [
-            'id' => $c['id'],
-            'name' => $c['name'],
-            'sim' => $c['sim']
-        ];
-    }, $candidate_list),
-    'top' => $top['id'],
-    'top_sim' => $top['sim'],
+    'success'      => true,
+    'bid'          => (string)$batch_id,
+    'scan'         => $scanned_img,
+    'thr'          => $thr,
+    'duration'     => $duration,
+    'list'         => array_map(fn($c) => [
+        'id'  => $c['id'],
+        'name'=> $c['name'],
+        'sim' => $c['sim']
+    ], $candidate_list),
+    'top'          => $top['id'],
+    'top_sim'      => $top['sim'],
     'auto_matched' => (bool)$is_auto
 ]);

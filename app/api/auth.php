@@ -6,37 +6,42 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 switch ($action) {
     case 'login':
         $data = get_json_input();
-        $u = trim($data['username'] ?? '');
-        $p = $data['password'] ?? '';
+        $u    = trim($data['username'] ?? '');
+        $p    = $data['password']  ?? '';
 
         if (empty($u) || empty($p)) {
             send_json(['error' => 'Username and password are required.'], 400);
         }
 
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE u = ? AND p = ?");
+        // Match against plain_password (dev/capstone mode)
+        $stmt = $pdo->prepare(
+            "SELECT user_id AS id, username AS u, plain_password AS p,
+                    role, on_status
+             FROM users
+             WHERE username = ? AND plain_password = ?"
+        );
         $stmt->execute([$u, $p]);
         $user = $stmt->fetch();
 
         if (!$user) {
             send_json(['error' => 'Invalid username or password.'], 401);
         }
-
         if ((int)$user['on_status'] !== 1) {
             send_json(['error' => 'This account is deactivated. Contact an admin.'], 403);
         }
 
-        $_SESSION['user_id'] = $user['id'];
+        $_SESSION['user_id']  = $user['id'];
         $_SESSION['username'] = $user['u'];
-        $_SESSION['role'] = $user['role'];
+        $_SESSION['role']     = strtolower($user['role']); // normalize to lowercase
 
         send_json([
             'success' => true,
             'user' => [
-                'id' => (int)$user['id'],
-                'u' => $user['u'],
-                'p' => $user['p'],
-                'role' => $user['role'],
-                'on' => (bool)$user['on_status']
+                'id'   => (int)$user['id'],
+                'u'    => $user['u'],
+                'p'    => $user['p'],
+                'role' => strtolower($user['role']),
+                'on'   => (bool)$user['on_status']
             ]
         ]);
         break;
@@ -50,7 +55,11 @@ switch ($action) {
         if (!isset($_SESSION['username'])) {
             send_json(['user' => null]);
         }
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE u = ?");
+        $stmt = $pdo->prepare(
+            "SELECT user_id AS id, username AS u, plain_password AS p,
+                    role, on_status
+             FROM users WHERE username = ?"
+        );
         $stmt->execute([$_SESSION['username']]);
         $user = $stmt->fetch();
         if (!$user || (int)$user['on_status'] !== 1) {
@@ -59,11 +68,11 @@ switch ($action) {
         }
         send_json([
             'user' => [
-                'id' => (int)$user['id'],
-                'u' => $user['u'],
-                'p' => $user['p'],
-                'role' => $user['role'],
-                'on' => (bool)$user['on_status']
+                'id'   => (int)$user['id'],
+                'u'    => $user['u'],
+                'p'    => $user['p'],
+                'role' => strtolower($user['role']),
+                'on'   => (bool)$user['on_status']
             ]
         ]);
         break;
@@ -73,11 +82,14 @@ switch ($action) {
             send_json(['error' => 'Not authenticated'], 401);
         }
         $data = get_json_input();
-        $old = $data['old_password'] ?? '';
-        $new = $data['new_password'] ?? '';
+        $old  = $data['old_password']     ?? '';
+        $new  = $data['new_password']     ?? '';
         $new2 = $data['confirm_password'] ?? '';
 
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE u = ?");
+        $stmt = $pdo->prepare(
+            "SELECT user_id AS id, plain_password AS p
+             FROM users WHERE username = ?"
+        );
         $stmt->execute([$_SESSION['username']]);
         $user = $stmt->fetch();
 
@@ -91,9 +103,11 @@ switch ($action) {
             send_json(['error' => 'New passwords do not match.'], 400);
         }
 
-        $update = $pdo->prepare("UPDATE users SET p = ? WHERE id = ?");
-        $update->execute([$new, $user['id']]);
-
+        $upd = $pdo->prepare(
+            "UPDATE users SET plain_password = ?, password_hash = ?
+             WHERE user_id = ?"
+        );
+        $upd->execute([$new, password_hash($new, PASSWORD_DEFAULT), $user['id']]);
         send_json(['success' => true, 'message' => 'Password updated successfully']);
         break;
 
