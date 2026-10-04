@@ -8,6 +8,9 @@
 </head>
 <body>
     <div id="app">
+        <!-- Mobile top bar (staff only) -->
+        <header id="topbar"><button id="menu-btn" onclick="toggleMenu()" aria-label="Menu">&#9776;</button><span id="topbar-title">Laundry Mgmt</span></header>
+        <div id="scrim" onclick="toggleMenu(false)"></div>
         <!-- Navigation Sidebar -->
         <nav id="sidebar" class="hidden">
             <div class="logo">Laundry Mgmt v1.0</div>
@@ -39,12 +42,6 @@
                 </div>
             </section>
 
-            <!-- Staff Dashboard -->
-            <section id="dashboard-screen" class="screen">
-                <div class="header-bar"><h2>STAFF DASHBOARD</h2><span class="badge role-badge">Staff</span></div>
-                <div class="card" id="dash-body"></div>
-            </section>
-
             <!-- Intake Station -->
             <section id="intake-screen" class="screen">
                 <div class="header-bar"><h2>INTAKE STATION</h2><span class="badge role-badge">Staff</span></div>
@@ -67,9 +64,9 @@
                 </div>
             </section>
 
-            <!-- Active Batches -->
+            <!-- List -->
             <section id="batches-screen" class="screen">
-                <div class="header-bar"><h2>ACTIVE BATCHES</h2><span class="badge role-badge">Staff/Admin</span></div>
+                <div class="header-bar"><h2>LIST</h2><span class="badge role-badge">Staff/Admin</span></div>
                 <div class="card">
                     <div class="tabs" id="tabs"></div>
                     <div class="search-bar"><input type="text" id="search" placeholder="&#128269; Search batch / customer" oninput="renderBatches()"></div>
@@ -101,14 +98,8 @@
 
             <!-- Manual Verification -->
             <section id="verification-screen" class="screen">
-                <div class="header-bar"><h2>MANUAL VERIFICATION</h2><span class="badge warning">Low Confidence</span></div>
+                <div class="header-bar"><h2>MANUAL</h2><span class="badge warning">Low Confidence</span></div>
                 <div class="card" id="verify-body"></div>
-            </section>
-
-            <!-- Unresolved Items -->
-            <section id="unresolved-screen" class="screen">
-                <div class="header-bar"><h2>UNRESOLVED ITEMS</h2><span class="badge warning" id="u-count">0</span></div>
-                <div class="card" id="unres-body"></div>
             </section>
 
             <!-- Batch Complete Summary -->
@@ -123,10 +114,12 @@
                 <div class="card" id="admin-body"></div>
             </section>
 
-            <!-- Change Password -->
+            <!-- Profile -->
             <section id="password-screen" class="screen">
-                <div class="header-bar"><h2>CHANGE PASSWORD</h2><span class="badge role-badge" id="pw-role"></span></div>
+                <div class="header-bar"><h2>PROFILE</h2><span class="badge role-badge" id="pw-role"></span></div>
                 <div class="card">
+                    <div class="form-group"><label>Username</label><input type="text" id="pf-user" readonly></div>
+                    <p class="text-sm" style="margin-bottom:12px">Change password</p>
                     <div class="form-group"><label>Current Password</label><input type="password" id="pw-old"></div>
                     <div class="form-group"><label>New Password (min 6 chars)</label><input type="password" id="pw-new"></div>
                     <div class="form-group"><label>Confirm New Password</label><input type="password" id="pw-new2"></div>
