@@ -279,18 +279,11 @@ async function runMatch(d) {
       navigateTo('verification');
     }
   } catch (e) {
-    // Fallback to local simulation if offline
+    // Never fabricate a match result: show the real error so it can be fixed
     $('#s-scan').disabled = false;
-    const list = cand.map(i => ({id: i.id, name: i.name, sim: Math.floor(50 + Math.random() * 49)})).sort((a, c) => c.sim - a.sim);
-    pend = {bid: b.id, scan: d, list: list, top: list[0].id};
-    const top = list[0];
-    if (top.sim >= S.thr) {
-      const it = b.items.find(i => i.id === top.id);
-      r.innerHTML = `<div class="scanned-img">${img(d,'scan')}</div><div class="match-info"><p><strong>Match: </strong>${esc(it.name)} - ${esc(b.customer)}</p><p class="text-sm">Similarity: ${top.sim}% (threshold ${S.thr}%)</p><span class="badge success">RECOGNIZED</span></div>${img(it.img,it.name)}`;
-      $('#s-confirm').disabled = false;
-    } else {
-      r.classList.add('hidden'); toast('Low confidence - manual verification needed'); navigateTo('verification');
-    }
+    r.classList.add('hidden'); r.innerHTML = '';
+    console.error('Match failed:', e);
+    toast('Matching failed: ' + e.message);
   }
 }
 
@@ -299,7 +292,7 @@ async function confirmSort() {
   try {
     const res = await api('api/sort_confirm.php', {
       method: 'POST',
-      body: JSON.stringify({ batch_id: pend.bid, item_id: pend.top, st: 'auto' })
+      body: JSON.stringify({ batch_id: pend.bid, item_id: pend.top, st: 'auto', sim: (pend.list.find(c => c.id === pend.top) || {}).sim })
     });
     const b = B(pend.bid);
     pend = null;
@@ -347,7 +340,7 @@ async function confirmSel() {
   try {
     await api('api/sort_confirm.php', {
       method: 'POST',
-      body: JSON.stringify({ batch_id: pend.bid, item_id: pick, st: 'manual' })
+      body: JSON.stringify({ batch_id: pend.bid, item_id: pick, st: 'manual', sim: (pend.list.find(c => c.id === pick) || {}).sim })
     });
     const b = B(pend.bid); pend = null; await afterMatch(b);
   } catch (e) {

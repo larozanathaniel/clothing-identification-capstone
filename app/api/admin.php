@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($action)) {
 
     // Average match time from match_logs
     $avg_row = $pdo->query("SELECT AVG(match_time) AS avg_time FROM match_logs")->fetch();
-    $avg = $avg_row['avg_time'] ? number_format((float)$avg_row['avg_time'], 1) : '0.0';
+    $avg = $avg_row['avg_time'] ? number_format((float)$avg_row['avg_time'], 3) : '0.000';
 
     // Batch status counts
     $statuses = ['Open', 'Ready to Sort', 'Completed'];
@@ -70,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($action)) {
     $u    = trim($data['u']    ?? '');
     $p    = $data['p']         ?? '';
     $role = ucfirst(strtolower($data['role'] ?? 'staff')); // 'Staff' or 'Admin'
+    if (!in_array($role, ['Staff', 'Admin'], true)) send_json(['error' => 'Invalid role.'], 400);
     $on   = isset($data['on']) ? ($data['on'] ? 1 : 0) : 1;
 
     if (empty($u)) send_json(['error' => 'Username is required.'], 400);

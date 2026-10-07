@@ -2,16 +2,18 @@
 // Intelligent Garment Feature Extraction & Visual Similarity Engine using PHP GD
 
 function create_gd_image_from_src($src) {
-    if (empty($src)) return null;
+    if (empty($src) || !is_string($src)) return null;
     if (strpos($src, 'data:image') === 0) {
         $commaPos = strpos($src, ',');
         if ($commaPos === false) return null;
-        $data = base64_decode(substr($src, $commaPos + 1));
-        return @imagecreatefromstring($data);
+        $data = base64_decode(substr($src, $commaPos + 1), true);
+        return $data === false ? null : @imagecreatefromstring($data);
     }
-    if (file_exists($src)) {
-        $data = file_get_contents($src);
-        return @imagecreatefromstring($data);
+    // Only files inside the app's uploads/ folder may be read (never arbitrary paths)
+    $root = realpath(__DIR__ . '/../uploads');
+    $real = realpath($src);
+    if ($root && $real && strpos($real, $root . DIRECTORY_SEPARATOR) === 0 && is_file($real)) {
+        return @imagecreatefromstring(file_get_contents($real));
     }
     return null;
 }
@@ -109,8 +111,8 @@ function compare_garment_images($scanned_src, $candidate_src) {
     if (!$img1 || !$img2) {
         if ($img1) imagedestroy($img1);
         if ($img2) imagedestroy($img2);
-        // Fallback baseline score if image parsing fails
-        return rand(75, 92);
+        // Unreadable image: report 0 so it can never pass as a match
+        return 0;
     }
 
     $hash1 = compute_dhash($img1);
@@ -129,9 +131,6 @@ function compare_garment_images($scanned_src, $candidate_src) {
     // Weighted similarity score (60% hash structure, 40% color profile)
     $overall = ($dhash_sim * 0.6) + ($color_sim * 0.4);
     
-    // Scale and add realistic micro-variation
-    $score_percent = (int)round($overall * 100);
-
-    // Ensure realistic bounds (50% - 99%)
-    return max(52, min(99, $score_percent));
+    // Honest 0-100 score (no artificial floor or ceiling)
+    return max(0, min(100, (int)round($overall * 100)));
 }
