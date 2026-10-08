@@ -398,3 +398,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   body.staff .modal-box { max-width: 100%; padding: 18px; max-height: 90dvh; overflow-y: auto; }
   body.staff .toast { width: calc(100% - 24px); text-align: center; bottom: 14px; }
 }
+
+/* v4: labelled intake thumbs, customer list */
+.thumb .lbl { width: 100%; margin-top: 4px; padding: 4px; font-size: 0.75rem; border: 1px solid var(--border-color); border-radius: 4px; text-align: center; }
+.batch-group { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border-color); }
+.batch-group:first-of-type { border-top: 0; }
+body.staff .thumb .lbl { font-size: 0.8rem; }

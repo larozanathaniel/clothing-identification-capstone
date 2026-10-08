@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($action)) {
     $avg = $avg_row['avg_time'] ? number_format((float)$avg_row['avg_time'], 3) : '0.000';
 
     // Batch status counts
-    $statuses = ['Open', 'Ready to Sort', 'Completed'];
+    $statuses = ['Open', 'Completed'];
     $status_counts = [];
     foreach ($statuses as $s) {
         $sr = $pdo->prepare("SELECT COUNT(*) AS cnt FROM batches WHERE status = ?");

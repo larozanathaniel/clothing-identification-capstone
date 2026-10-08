@@ -15,7 +15,7 @@ define('DB_PASS', '');          // default XAMPP password is empty
 define('UPLOAD_ROOT', realpath(__DIR__ . '/..') . DIRECTORY_SEPARATOR . 'uploads');
 
 // Batch workflow (must match the frontend STATUS list and the batches.status ENUM)
-const BATCH_STATUSES = ['Open', 'Washing', 'Ready to Sort', 'Completed'];
+const BATCH_STATUSES = ['Open', 'Completed'];
 
 $pdo = null;
 try {
@@ -34,7 +34,7 @@ try {
 // ── One-time schema upgrade ────────────────────────────────────────────────
 // Runs ONLY when settings.schema_v is below SCHEMA_VERSION, so it no longer
 // touches the database (or resets passwords) on every request.
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function column_exists($pdo, $table, $col) {
     // SHOW statements cannot take bound parameters, so the value is quoted instead
@@ -91,13 +91,12 @@ function init_app($pdo) {
             ADD COLUMN `plain_password` VARCHAR(255) NOT NULL DEFAULT '' AFTER `password_hash`");
     }
 
-    // The UI has a 'Washing' step; the original ENUM did not.
-    $t = $pdo->query("SHOW COLUMNS FROM `batches` LIKE 'status'")->fetch();
-    if ($t && stripos($t['Type'], 'Washing') === false) {
-        $pdo->exec("ALTER TABLE `batches`
-            MODIFY `status` ENUM('Open','Washing','Ready to Sort','Completed')
-            NOT NULL DEFAULT 'Open'");
-    }
+    // v4 workflow: no Washing / Ready-to-Sort steps. A batch is simply Open or Completed.
+    $pdo->exec("UPDATE `batches` SET `status`='Open' WHERE `status` IN ('Washing','Ready to Sort')");
+    $pdo->exec("ALTER TABLE `batches` MODIFY `status` ENUM('Open','Completed') NOT NULL DEFAULT 'Open'");
+    // Sorting now searches every customer, so a set-aside garment has no batch yet.
+    $pdo->exec("ALTER TABLE `flags`   MODIFY `batch_id` INT(11) NULL");
+    $pdo->exec("ALTER TABLE `rescans` MODIFY `batch_id` INT(11) NULL");
 
     $pdo->exec("INSERT IGNORE INTO `settings` (`key`, `value`) VALUES ('thr', '80')");
 
@@ -197,19 +196,26 @@ function garment_img_src($g) {
     return $g['intake_image'] ?? '';
 }
 
+// ── Pending garments across all open batches (what the Sorting tab searches) ─
+function open_pending_garments($pdo) {
+    return $pdo->query(
+        "SELECT g.*, c.name AS customer
+         FROM garments g
+         JOIN batches b   ON b.batch_id    = g.batch_id
+         JOIN customers c ON c.customer_id = b.customer_id
+         WHERE b.status = 'Open' AND g.match_type = 'pending'
+         ORDER BY g.garment_id ASC")->fetchAll();
+}
+
 // ── Batch completion (shared by sort_confirm.php and flags.php) ────────────
-// A batch completes when nothing is pending and no flags remain.
+// A batch completes when every garment in it has been matched back.
 function maybe_complete_batch($pdo, $batch_id) {
     $p = $pdo->prepare("SELECT COUNT(*) FROM garments WHERE batch_id = ? AND match_type = 'pending'");
     $p->execute([$batch_id]);
-    $f = $pdo->prepare("SELECT COUNT(*) FROM flags WHERE batch_id = ?");
-    $f->execute([$batch_id]);
     $t = $pdo->prepare("SELECT COUNT(*) FROM garments WHERE batch_id = ?");
     $t->execute([$batch_id]);
-
-    if ((int)$p->fetchColumn() === 0 && (int)$f->fetchColumn() === 0 && (int)$t->fetchColumn() > 0) {
-        $u = $pdo->prepare("UPDATE batches SET status = 'Completed'
-                            WHERE batch_id = ? AND status = 'Ready to Sort'");
+    if ((int)$p->fetchColumn() === 0 && (int)$t->fetchColumn() > 0) {
+        $u = $pdo->prepare("UPDATE batches SET status = 'Completed' WHERE batch_id = ? AND status = 'Open'");
         $u->execute([$batch_id]);
         return $u->rowCount() > 0;
     }
