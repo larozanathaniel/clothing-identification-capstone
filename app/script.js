@@ -3,8 +3,8 @@
 const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-let S = { users: [], batches: [], flags: [], thr: 80, seq: 1000 };
-let me = null, cur = null, tab = 'Open', stream = null, draft = {name:'', items:[]}, pend = null, pick = null, fileFor = null;
+let S = { users: [], batches: [], flags: [], thr: 80, seq: 1000, gseq: 1 };
+let me = null, cur = null, stream = null, draft = {name:'', items:[]}, pend = null, pick = null, fileFor = null;
 const IMG_W = 320;                                   // every scan is resized to this width (intake AND sorting)
 const TABS = [['Open','In Laundry'], ['Completed','Completed']];
 const LABEL = Object.fromEntries(TABS);
@@ -18,7 +18,8 @@ const unresolved = () => S.flags;
 async function api(endpoint, options = {}) {
   const res = await fetch(endpoint, { headers: {'Content-Type': 'application/json'}, ...options });
   let data = {};
-  try { data = await res.json(); } catch (e) { throw new Error('Server error (' + res.status + ')'); }
+  const raw = await res.text();
+  try { data = JSON.parse(raw); } catch (e) { throw new Error('Server error (' + res.status + '): ' + raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)); }
   if (!res.ok) {
     if (res.status === 401 && me) { me = null; $('#sidebar').classList.add('hidden'); navigateTo('login'); throw new Error('Session expired. Please log in again.'); }
     throw new Error(data.error || 'Request failed');
@@ -28,7 +29,7 @@ async function api(endpoint, options = {}) {
 async function refreshState() {
   try {
     const d = await api('api/batches.php');
-    S.batches = d.batches || []; S.flags = d.flags || []; S.seq = d.seq || S.seq; S.thr = d.thr || S.thr;
+    S.batches = d.batches || []; S.flags = d.flags || []; S.seq = d.seq || S.seq; S.gseq = d.gseq || S.gseq; S.thr = d.thr || S.thr;
   } catch (e) { if (me) toast('Could not load data: ' + e.message); }
 }
 
@@ -125,10 +126,10 @@ function gotPhoto(sec, d) { sec === 'intake' ? addItem(d) : runMatch(d); }
 /* ---------- intake: scan + label each garment ---------- */
 function renderIntake() { startCam('intake'); drawDraft(); }
 function drawDraft() {
-  $('#in-name').value = draft.name; $('#in-id').value = 'AUTO-' + (S.seq + 1); $('#in-count').value = draft.items.length;
+  $('#in-name').value = draft.name; $('#in-id').value = 'ITEM-' + (S.gseq + draft.items.length);
   $('#cust-list').innerHTML = [...new Set(S.batches.map(b => b.customer))].map(n => `<option value="${esc(n)}">`).join('');
   $('#in-thumbs').innerHTML = draft.items.length
-    ? draft.items.map((i,k) => `<div class="thumb">${img(i.img,i.name)}<input class="lbl" maxlength="100" value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Label"><a href="#" onclick="rmItem(${k});return false">&times; remove</a></div>`).join('')
+    ? draft.items.map((i,k) => `<div class="thumb">${img(i.img,i.name)}<span class="text-sm">ITEM-${S.gseq + k}</span><input class="lbl" maxlength="100" value="${esc(i.name)}" oninput="draft.items[${k}].name=this.value" aria-label="Label"><a href="#" onclick="rmItem(${k});return false">&times; remove</a></div>`).join('')
     : '<div class="empty-state w-full">No garments scanned yet.</div>';
 }
 function addItem(d) { draft.items.push({name: 'Item ' + (draft.items.length + 1), img: d}); drawDraft(); }
@@ -144,7 +145,7 @@ async function saveBatch() {
     const res = await api('api/batches.php', { method: 'POST', body: JSON.stringify({ customer: draft.name.trim(), items }) });
     draft = {name:'', items:[]};
     toast(`Batch #${res.id} saved`);
-    tab = 'Open'; $('#search').value = '';
+    $('#search').value = '';
     await navigateTo('batches');
   } catch (e) { toast('Not saved: ' + e.message); }   // never pretend it was saved
   btn.disabled = false;
@@ -157,14 +158,13 @@ function groupByCustomer(batches) {
   return [...m.values()];
 }
 function renderBatches() {
-  $('#tabs').innerHTML = TABS.map(([s,l]) => `<button class="tab ${s === tab ? 'active' : ''}" onclick="tab='${s}';renderBatches()">${l}</button>`).join('');
   const q = ($('#search').value || '').toLowerCase();
-  const list = S.batches.filter(b => b.status === tab && (b.id + ' ' + b.customer).toLowerCase().includes(q));
+  const list = S.batches.filter(b => (b.id + ' ' + b.customer).toLowerCase().includes(q));
   const groups = groupByCustomer(list);
   $('#batch-list').innerHTML = groups.length ? groups.map(g => {
     const items = g.batches.flatMap(b => b.items), w = items.filter(i => i.st === 'pending').length;
-    return `<div class="batch-item" onclick="cur='${g.id}';navigateTo('detail')"><div><b>${esc(g.name)}</b><br><span class="text-sm">${items.length} garment${items.length === 1 ? '' : 's'} - ${w} waiting, ${items.length - w} sorted - ${g.batches.length} batch${g.batches.length === 1 ? '' : 'es'}</span></div><span class="badge ${w ? 'muted' : 'success'}">${w ? w + ' waiting' : 'All sorted'}</span></div>`;
-  }).join('') : `<div class="empty-state">${q ? 'No customers match your search.' : tab === 'Open' ? 'Nothing in the laundry right now.' : 'No completed batches yet.'}</div>`;
+    return `<div class="batch-item" onclick="cur='${g.id}';navigateTo('detail')"><div><b>${esc(g.name)}</b><br><span class="text-sm">${items.length} garment${items.length === 1 ? '' : 's'} - ${w} waiting, ${items.length - w} sorted</span></div><span class="badge ${w ? 'muted' : 'success'}">${w ? w + ' waiting' : 'All sorted'}</span></div>`;
+  }).join('') : `<div class="empty-state">${q ? 'No customers match your search.' : 'No garments recorded yet.'}</div>`;
 }
 function renderDetail() {
   const bs = S.batches.filter(b => b.customer_id === String(cur));
@@ -173,7 +173,7 @@ function renderDetail() {
   $('#d-title').textContent = bs[0].customer.toUpperCase(); $('#d-status').textContent = w ? w + ' waiting' : 'All sorted';
   $('#detail-body').innerHTML = `<p class="text-sm">${items.length} garments - ${count({items},'auto')} auto-sorted, ${count({items},'manual')} manual, ${w} waiting</p>`
     + bs.map(b => `<div class="batch-group"><p><b>Batch #${b.id}</b> <span class="badge ${b.status === 'Completed' ? 'success' : 'muted'}">${LABEL[b.status] || b.status}</span> <span class="text-sm">received ${new Date(b.created).toLocaleString()}${b.done ? ' - completed ' + new Date(b.done).toLocaleString() : ''}</span></p>
-        <div class="garments">${b.items.map(i => `<div class="thumb">${img(i.img,i.name)}${esc(i.name)}<br>${stBadge(i.st)}</div>`).join('')}</div></div>`).join('')
+        <div class="garments">${b.items.map(i => `<div class="thumb">${img(i.img,i.name)}${esc(i.name)}<br><span class="text-sm">ITEM-${i.id}</span><br>${stBadge(i.st)}</div>`).join('')}</div></div>`).join('')
     + `<div class="btn-group mt-2"><button class="btn-secondary" onclick="navigateTo('batches')">&larr; BACK TO LIST</button></div>`;
 }
 
@@ -194,7 +194,7 @@ async function runMatch(d) {
     pend = { scan: d, list: res.list, top: res.top, thr: res.thr };
     const top = res.list[0], f = findItem(top.id);
     if (res.auto_matched) {
-      r.innerHTML = `<div class="scanned-img">${img(d,'scan')}</div><div class="match-info"><p><strong>Owner: ${esc(top.customer)}</strong></p><p>${esc(top.name)} - Batch #${top.bid}</p><p class="text-sm">Similarity ${top.sim}% (threshold ${res.thr}%)</p><span class="badge success">RECOGNIZED (${res.duration}s)</span></div>${img(f ? f.i.img : '', top.name)}`;
+      r.innerHTML = `<div class="scanned-img">${img(d,'scan')}</div><div class="match-info"><p><strong>Owner: ${esc(top.customer)}</strong></p><p>${esc(top.name)} - ITEM-${top.id}</p><p class="text-sm">Similarity ${top.sim}% (threshold ${res.thr}%)</p><span class="badge success">RECOGNIZED (${res.duration}s)</span></div>${img(f ? f.i.img : '', top.name)}`;
       $('#s-confirm').disabled = false; $('#s-reject').disabled = false;
     } else {
       r.classList.add('hidden');
@@ -242,9 +242,9 @@ function renderVerify() {
 }
 function drawCands() {
   const q = ($('#v-search').value || '').toLowerCase().trim();
-  let l = pend.list; l = q ? l.filter(c => (c.customer + ' ' + c.name + ' #' + c.bid).toLowerCase().includes(q)).slice(0, 20) : l.slice(0, 5);
+  let l = pend.list; l = q ? l.filter(c => (c.customer + ' ' + c.name + ' item-' + c.id).toLowerCase().includes(q)).slice(0, 20) : l.slice(0, 5);
   $('#v-cands').innerHTML = l.length ? l.map(c => { const f = findItem(c.id);
-    return `<div class="row pick ${pick === c.id ? 'sel' : ''}" onclick="selCand('${c.id}')"><div>${img(f ? f.i.img : '', c.name)}<span><b>${esc(c.customer)}</b> - ${esc(c.name)}<br><span class="text-sm">Batch #${c.bid} - similarity ${c.sim}%</span></span></div><span class="badge muted">select</span></div>`; }).join('')
+    return `<div class="row pick ${pick === c.id ? 'sel' : ''}" onclick="selCand('${c.id}')"><div>${img(f ? f.i.img : '', c.name)}<span><b>${esc(c.customer)}</b> - ${esc(c.name)}<br><span class="text-sm">ITEM-${c.id} - similarity ${c.sim}%</span></span></div><span class="badge muted">select</span></div>`; }).join('')
     : '<div class="empty-state">No waiting garment matches your search.</div>';
   $('#v-ok').disabled = !pick;
 }

@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/db.php';
 require_role(['staff']);
+if (!function_exists('imagecreatefromstring')) {
+    send_json(['error' => 'PHP GD extension is not enabled. In XAMPP: open php.ini, change ";extension=gd" to "extension=gd", then restart Apache.'], 500);
+}
 require_once __DIR__ . '/image_matcher.php';
 
 // If the best two candidates are closer than this many points, don't auto-match:

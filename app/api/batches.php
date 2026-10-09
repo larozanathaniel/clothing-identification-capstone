@@ -40,7 +40,10 @@ if ($method === 'GET') {
 
     $thr = (int)($pdo->query("SELECT value FROM settings WHERE `key` = 'thr'")->fetchColumn() ?: 80);
     $seq = (int)($pdo->query("SELECT MAX(batch_id) FROM batches")->fetchColumn() ?: 1000);
-    send_json(['batches' => $result, 'flags' => $flags, 'seq' => $seq, 'thr' => $thr]);
+    $gseq = (int)$pdo->query("SELECT AUTO_INCREMENT FROM information_schema.TABLES
+                              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'garments'")->fetchColumn();
+    if ($gseq < 1) $gseq = (int)$pdo->query("SELECT COALESCE(MAX(garment_id),0)+1 FROM garments")->fetchColumn();
+    send_json(['batches' => $result, 'flags' => $flags, 'seq' => $seq, 'gseq' => $gseq, 'thr' => $thr]);
 
 } elseif ($method === 'POST') {
     $data     = get_json_input();

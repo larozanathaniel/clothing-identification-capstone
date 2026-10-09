@@ -4,6 +4,21 @@
 
 session_start();
 
+// Never print PHP errors into the response: the frontend expects clean JSON.
+// Any uncaught error becomes a JSON message the staff can read in the toast.
+ini_set('display_errors', '0');
+function _json_fail($msg) {
+    if (!headers_sent()) { http_response_code(500); header('Content-Type: application/json; charset=utf-8'); }
+    echo json_encode(['error' => $msg]);
+}
+set_exception_handler(function ($e) { _json_fail('Server error: ' . $e->getMessage()); });
+register_shutdown_function(function () {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        _json_fail('Server error: ' . $e['message']);
+    }
+});
+
 // ── MariaDB connection ──────────────────────────────────────────────────────
 define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
