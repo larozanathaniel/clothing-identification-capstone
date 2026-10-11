@@ -33,25 +33,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($action)) {
 
     // Users list
     $u_stmt = $pdo->query(
-        "SELECT user_id AS id, username AS u, plain_password AS p, role, on_status
+        "SELECT user_id AS id, username AS u, full_name, plain_password AS p, role, on_status, avatar
          FROM users ORDER BY user_id ASC"
     );
     $users = array_map(function($u) {
         return [
-            'id'   => (int)$u['id'],
-            'u'    => $u['u'],
-            'p'    => $u['p'],
-            'role' => strtolower($u['role']),
-            'on'   => (bool)$u['on_status']
+            'id'     => (int)$u['id'],
+            'u'      => $u['u'],
+            'name'   => $u['full_name'] ?? '',
+            'p'      => $u['p'],
+            'role'   => strtolower($u['role']),
+            'on'     => (bool)$u['on_status'],
+            'avatar' => $u['avatar'] ?? null
         ];
     }, $u_stmt->fetchAll());
 
+    // System counts for Overview and Settings
+    $total_garments  = (int)$pdo->query("SELECT COUNT(*) AS cnt FROM garments")->fetch()['cnt'];
+    $total_batches   = (int)$pdo->query("SELECT COUNT(*) AS cnt FROM batches")->fetch()['cnt'];
+    $total_customers = (int)$pdo->query("SELECT COUNT(*) AS cnt FROM customers")->fetch()['cnt'];
+
     send_json([
-        'accuracy'      => $acc,
-        'avg_time'      => $avg,
-        'status_counts' => $status_counts,
-        'thr'           => $thr,
-        'users'         => $users
+        'accuracy'        => $acc,
+        'avg_time'        => $avg,
+        'status_counts'   => $status_counts,
+        'thr'             => $thr,
+        'users'           => $users,
+        'total_garments'  => $total_garments,
+        'total_batches'   => $total_batches,
+        'total_customers' => $total_customers
     ]);
 
 } elseif ($action === 'threshold') {
@@ -68,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($action)) {
     $data = get_json_input();
     $id   = isset($data['id']) ? (int)$data['id'] : -1;
     $u    = trim($data['u']    ?? '');
+    $name = trim($data['name'] ?? '');
     $p    = $data['p']         ?? '';
     $role = ucfirst(strtolower($data['role'] ?? 'staff')); // 'Staff' or 'Admin'
     if (!in_array($role, ['Staff', 'Admin'], true)) send_json(['error' => 'Invalid role.'], 400);
@@ -83,10 +94,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($action)) {
         if (strlen($p) < 6) send_json(['error' => 'Password must be at least 6 characters.'], 400);
 
         $ins = $pdo->prepare(
-            "INSERT INTO users (username, plain_password, password_hash, role, on_status)
-             VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO users (username, full_name, plain_password, password_hash, role, on_status)
+             VALUES (?, ?, ?, ?, ?, ?)"
         );
-        $ins->execute([$u, $p, password_hash($p, PASSWORD_DEFAULT), $role, $on]);
+        $ins->execute([$u, $name, $p, password_hash($p, PASSWORD_DEFAULT), $role, $on]);
     } else {
         // UPDATE existing user
         $chk = $pdo->prepare("SELECT COUNT(*) AS cnt FROM users WHERE username = ? AND user_id != ?");
@@ -96,16 +107,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($action)) {
         if (!empty($p)) {
             if (strlen($p) < 6) send_json(['error' => 'Password must be at least 6 characters.'], 400);
             $upd = $pdo->prepare(
-                "UPDATE users SET username = ?, plain_password = ?, password_hash = ?,
+                "UPDATE users SET username = ?, full_name = ?, plain_password = ?, password_hash = ?,
                  role = ?, on_status = ? WHERE user_id = ?"
             );
-            $upd->execute([$u, $p, password_hash($p, PASSWORD_DEFAULT), $role, $on, $id]);
+            $upd->execute([$u, $name, $p, password_hash($p, PASSWORD_DEFAULT), $role, $on, $id]);
         } else {
             $upd = $pdo->prepare(
-                "UPDATE users SET username = ?, role = ?, on_status = ? WHERE user_id = ?"
+                "UPDATE users SET username = ?, full_name = ?, role = ?, on_status = ? WHERE user_id = ?"
             );
-            $upd->execute([$u, $role, $on, $id]);
+            $upd->execute([$u, $name, $role, $on, $id]);
         }
     }
     send_json(['success' => true]);
+
+} elseif ($action === 'delete_user') {
+    $data = get_json_input();
+    $id   = isset($data['id']) ? (int)$data['id'] : -1;
+    if ($id <= 0) send_json(['error' => 'Invalid user ID.'], 400);
+
+    // Fetch user to delete
+    $stmt = $pdo->prepare("SELECT user_id, username, full_name, avatar FROM users WHERE user_id = ?");
+    $stmt->execute([$id]);
+    $user = $stmt->fetch();
+    if (!$user) send_json(['error' => 'User not found.'], 404);
+
+    // Protect currently logged-in account
+    if ($user['user_id'] == ($_SESSION['user_id'] ?? 0) || $user['username'] === ($_SESSION['username'] ?? '')) {
+        send_json(['error' => "You cannot delete your own account."], 400);
+    }
+
+    // Delete avatar image file if exists
+    if (!empty($user['avatar'])) {
+        delete_upload($user['avatar']);
+    }
+
+    // Clear foreign references in batches and rescans if any
+    $pdo->prepare("UPDATE batches SET staff_id = NULL WHERE staff_id = ?")->execute([$id]);
+    $pdo->prepare("UPDATE rescans SET confirmed_by = NULL WHERE confirmed_by = ?")->execute([$id]);
+
+    // Delete user record
+    $pdo->prepare("DELETE FROM users WHERE user_id = ?")->execute([$id]);
+
+    send_json(['success' => true, 'message' => 'User removed successfully.']);
+} else {
+    send_json(['error' => 'Invalid action.'], 400);
 }

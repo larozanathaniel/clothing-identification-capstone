@@ -36,7 +36,10 @@ async function refreshState() {
 /* ---------- UI helpers ---------- */
 function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.remove('hidden'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), 3200); }
 function modal(html) { $('#modal-box').innerHTML = html; $('#modal').classList.remove('hidden'); }
-function closeModal() { $('#modal').classList.add('hidden'); }
+function closeModal() {
+  stopAvatarCam();
+  $('#modal').classList.add('hidden');
+}
 function confirmBox(msg, yes) {
   window._yes = () => { closeModal(); yes(); };
   modal(`<h3>Are you sure?</h3><p>${msg}</p><div class="btn-group"><button class="btn-secondary" onclick="closeModal()">CANCEL</button><button class="btn-primary" onclick="_yes()">YES, CONTINUE</button></div>`);
@@ -47,31 +50,62 @@ const stBadge = st => `<span class="badge ${{pending:'muted',auto:'success',manu
 /* ---------- navigation ---------- */
 const HOME = () => me && me.role === 'admin' ? 'admin' : 'intake';
 const ALLOWED = {
-  staff: ['intake','sorting','verification','batches','detail','password'],
-  admin: ['admin','batches','detail']
+  staff: ['intake','sorting','verification','batches','detail','password','settings'],
+  admin: ['admin','batches','detail','password','settings']
 };
+let adminTab = 'overview';
+let adminData = null;
+
 function buildNav() {
   const n = unresolved().length;
+  const pLabel = (me && me.avatar ? `<img src="${esc(me.avatar)}" class="nav-avatar">` : '') + 'Profile';
   const items = me.role === 'admin'
-    ? [['admin','Admin Dashboard'],['batches','List']]
-    : [['intake','Intake'],['sorting','Sorting'],['verification','Manual' + (n ? `<span class="pill">${n}</span>` : '')],['batches','List'],['password','Profile']];
+    ? [['admin','Admin Dashboard'],['batches','List'],['settings','Settings'],['password', pLabel]]
+    : [['intake','Intake'],['sorting','Sorting'],['verification','Manual' + (n ? `<span class="pill">${n}</span>` : '')],['batches','List'],['password', pLabel],['settings','Settings']];
   $('#nav').innerHTML = items.map(([id,l]) => `<li data-s="${id}" onclick="navigateTo('${id}')">${l}</li>`).join('') + `<li onclick="logout()" class="logout">Logout</li>`;
 }
 function toggleMenu(force) {
   const open = force === undefined ? !$('#sidebar').classList.contains('open') : force;
   $('#sidebar').classList.toggle('open', open); $('#scrim').classList.toggle('show', open);
 }
+function switchAdminTab(tab) {
+  adminTab = tab;
+  drawAdmin();
+  buildNav();
+}
 async function navigateTo(id) {
   stopCam(); toggleMenu(false);
   if (me && id !== 'login' && !ALLOWED[me.role].includes(id)) id = HOME();
   if (me) await refreshState();
+
+  if (id === 'settings' && me && me.role === 'admin') {
+    adminTab = 'settings';
+    id = 'admin';
+  } else if (id === 'admin') {
+    if (adminTab !== 'settings' && adminTab !== 'users') adminTab = 'overview';
+  }
+
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.body.classList.toggle('staff', !!me && me.role === 'staff');
   const hd = document.querySelector(`#${id}-screen .header-bar h2`); $('#topbar-title').textContent = hd ? hd.textContent : 'Laundry Mgmt';
   const t = $('#' + id + '-screen'); if (t) t.classList.add('active');
-  if (me) { buildNav(); const li = document.querySelector(`#nav li[data-s="${id === 'detail' ? 'batches' : id}"]`); if (li) li.classList.add('active'); }
-  ({intake:renderIntake, batches:renderBatches, detail:renderDetail, sorting:renderSorting, verification:renderVerify, admin:renderAdmin,
-    password:() => { $('#pw-role').textContent = me.role; $('#pf-user').value = me.u || ''; ['old','new','new2'].forEach(k => $('#pw-'+k).value=''); $('#pw-err').textContent=''; }}[id] || (()=>{}))();
+  if (me) {
+    buildNav();
+    const navKey = (id === 'detail') ? 'batches' : (id === 'admin' && adminTab === 'settings' ? 'settings' : id);
+    const li = document.querySelector(`#nav li[data-s="${navKey}"]`);
+    if (li) li.classList.add('active');
+  }
+  ({intake:renderIntake, batches:renderBatches, detail:renderDetail, sorting:renderSorting, verification:renderVerify, admin:renderAdmin, settings:renderSettings,
+    password:() => {
+      $('#pw-role').textContent = me.role;
+      if ($('#pf-name')) $('#pf-name').value = me.name || me.u || '';
+      $('#pf-user').value = me.u || '';
+      if ($('#pf-display-name')) $('#pf-display-name').textContent = me.name || me.u || 'User';
+      if ($('#pf-display-role')) $('#pf-display-role').textContent = me.role ? me.role.charAt(0).toUpperCase() + me.role.slice(1) : '';
+      ['old','new','new2'].forEach(k => $('#pw-'+k).value='');
+      $('#pw-err').textContent='';
+      renderProfileAvatar();
+    }}[id] || (()=>{}))();
 }
 
 /* ---------- auth ---------- */
@@ -104,9 +138,10 @@ async function changePassword() {
 async function startCam(sec) {
   const box = $(`#${sec}-screen .camera-preview`), v = box.querySelector('video'), m = box.querySelector('.cam-msg');
   box.classList.remove('live'); m.textContent = 'Starting camera...';
+  const facing = localStorage.getItem('cam_facing') || 'environment';
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw 0;
-    stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}}); v.srcObject = stream; box.classList.add('live');
+    stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: facing}}); v.srcObject = stream; box.classList.add('live');
   } catch (e) { m.innerHTML = '&#9888; Camera blocked or unavailable.<br>Allow camera access in your browser, or use <b>Upload Photo</b>.'; }
 }
 function stopCam() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; }
@@ -194,9 +229,11 @@ async function runMatch(d) {
     pend = { scan: d, list: res.list, top: res.top, thr: res.thr };
     const top = res.list[0], f = findItem(top.id);
     if (res.auto_matched) {
+      playMatchSound(true);
       r.innerHTML = `<div class="scanned-img">${img(d,'scan')}</div><div class="match-info"><p><strong>Owner: ${esc(top.customer)}</strong></p><p>${esc(top.name)} - ITEM-${top.id}</p><p class="text-sm">Similarity ${top.sim}% (threshold ${res.thr}%)</p><span class="badge success">RECOGNIZED (${res.duration}s)</span></div>${img(f ? f.i.img : '', top.name)}`;
       $('#s-confirm').disabled = false; $('#s-reject').disabled = false;
     } else {
+      playMatchSound(false);
       r.classList.add('hidden');
       toast(res.ambiguous ? `Two similar garments (${top.sim}% / ${res.list[1].sim}%) - choose manually` : `Low confidence (${top.sim}%) - choose manually`);
       navigateTo('verification');
@@ -283,44 +320,604 @@ function openResolve(fid) {
   modal(`<h3>Who owns this garment?</h3><div class="thumbs">${img(f.img,'')}</div><div class="form-group" style="margin-top:14px"><label>Owner / item</label><select id="res-sel">${groups.map(g => `<optgroup label="${esc(g.name)}">${g.batches.flatMap(b => b.items.filter(i => i.st === 'pending').map(i => `<option value="${i.id}">${esc(i.name)} (Batch #${b.id})</option>`)).join('')}</optgroup>`).join('')}</select></div><div class="btn-group"><button class="btn-secondary" onclick="closeModal()">CANCEL</button><button class="btn-warning" onclick="_dis()">DISMISS</button><button class="btn-primary" onclick="_res()">ASSIGN</button></div>`);
 }
 
+/* ---------- theme, audio & preferences ---------- */
+function applyTheme(theme) {
+  const isDark = theme === 'dark' || (theme === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.body.classList.toggle('dark-mode', isDark);
+  localStorage.setItem('app_theme', theme);
+  const cfg = $('#cfg-theme'); if (cfg) cfg.value = theme;
+  const stf = $('#stf-theme'); if (stf) stf.value = theme;
+}
+applyTheme(localStorage.getItem('app_theme') || 'light');
+
+function playMatchSound(success = true) {
+  if (localStorage.getItem('sound_enabled') === 'false') return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    if (success) {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } else {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(349.23, ctx.currentTime);
+      osc.frequency.setValueAtTime(261.63, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+    }
+  } catch (e) {}
+}
+
+function updateCamPref(val) {
+  localStorage.setItem('cam_facing', val);
+  toast('Camera preference saved');
+}
+
+function updateSoundPref(checked) {
+  localStorage.setItem('sound_enabled', checked ? 'true' : 'false');
+  toast(checked ? 'Sound alerts enabled' : 'Sound alerts muted');
+}
+
 /* ---------- admin ---------- */
 async function renderAdmin() {
   try {
     const data = await api('api/admin.php');
-    S.users = data.users || []; S.thr = data.thr || S.thr;
-    const sc = data.status_counts || {}, mx = Math.max(1, ...TABS.map(([s]) => sc[s] || 0));
-    $('#admin-body').innerHTML = `<div class="stats-grid"><div class="stat-box"><h3>${data.accuracy}%</h3><p>Match Accuracy</p></div><div class="stat-box"><h3>${data.avg_time}s</h3><p>Avg. Match Time</p></div></div>
-      <div class="bars">${TABS.map(([s,l]) => { const n = sc[s] || 0; return `<div><i style="height:${n / mx * 100}px"></i>${n}<br>${l}</div>`; }).join('')}</div>
-      <div class="mt-2"><p class="text-sm">Match threshold (similarity needed for auto-match)</p>
-      <div class="row"><input type="number" id="thr" min="50" max="99" value="${S.thr}" style="max-width:100px"> <span>%</span><button class="btn-primary" style="width:auto" onclick="saveThr()">SAVE</button></div></div>
-      <div class="user-management mt-2"><p class="text-sm">Staff / User Management (RBAC)</p>
-      ${S.users.map((u,k) => `<div class="row"><div><b>${esc(u.u)}</b> <span class="badge muted">${u.role}</span> <span class="badge ${u.on ? 'success' : 'danger'}">${u.on ? 'Active' : 'Deactivated'}</span></div><button class="btn-secondary" onclick="userForm(${k})">Edit</button></div>`).join('')}
-      <button class="btn-secondary w-full mt-2" onclick="userForm(-1)">+ ADD USER</button></div>`;
-  } catch (e) { $('#admin-body').innerHTML = `<div class="empty-state">Could not load the dashboard: ${esc(e.message)}</div>`; }
+    adminData = data;
+    S.users = data.users || [];
+    S.thr = data.thr || S.thr;
+    drawAdmin();
+  } catch (e) {
+    $('#admin-body').innerHTML = `<div class="empty-state">Could not load the dashboard: ${esc(e.message)}</div>`;
+  }
 }
+
+function drawAdmin() {
+  if (!adminData) return;
+  const data = adminData;
+  const sc = data.status_counts || {}, mx = Math.max(1, ...TABS.map(([s]) => sc[s] || 0));
+
+  let tabHtml = '';
+  if (adminTab === 'overview') {
+    tabHtml = `
+      <div class="stats-grid">
+        <div class="stat-box"><h3>${data.accuracy}%</h3><p>Match Accuracy</p></div>
+        <div class="stat-box"><h3>${data.avg_time}s</h3><p>Avg. Match Time</p></div>
+        <div class="stat-box"><h3>${data.total_garments || 0}</h3><p>Total Garments</p></div>
+        <div class="stat-box"><h3>${S.flags.length}</h3><p>Unidentified Flags</p></div>
+      </div>
+      <div class="bars">${TABS.map(([s,l]) => { const n = sc[s] || 0; return `<div><i style="height:${n / mx * 100}px"></i>${n}<br>${l}</div>`; }).join('')}</div>
+      <div class="btn-group mt-2">
+        <button class="btn-secondary" onclick="switchAdminTab('users')">&#128101; Manage Users (${S.users.length})</button>
+        <button class="btn-primary" onclick="switchAdminTab('settings')">&#9881; Configure Settings</button>
+      </div>`;
+  } else if (adminTab === 'users') {
+    tabHtml = `
+      <div class="user-management">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
+            <h3 style="margin:0;color:var(--header-bg);font-size:1.05rem">Staff / User Management (RBAC)</h3>
+            <p class="text-sm" style="margin-top:2px">Manage administrative and staff system access accounts</p>
+          </div>
+          <button class="btn-primary" style="width:auto;padding:9px 18px" onclick="userForm(-1)">+ ADD USER</button>
+        </div>
+        ${S.users.map((u,k) => `
+          <div class="row">
+            <div>
+              <b>${esc(u.name || u.u)}</b> ${u.name ? `<span class="text-sm">(@${esc(u.u)})</span>` : ''} 
+              <span class="badge muted">${u.role}</span> 
+              <span class="badge ${u.on ? 'success' : 'danger'}">${u.on ? 'Active' : 'Deactivated'}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="btn-secondary" style="padding:7px 15px;font-size:0.85rem" onclick="userForm(${k})">Edit</button>
+              ${me && (me.id === u.id || me.u === u.u)
+                ? `<button class="btn-secondary" style="padding:7px 12px;font-size:0.85rem;opacity:0.35;cursor:not-allowed" disabled title="You cannot delete your own account">&#128465;</button>`
+                : `<button class="btn-danger-outline" style="padding:7px 14px;font-size:0.85rem" onclick="removeUser(${k})" title="Delete user">&#128465; Delete</button>`
+              }
+            </div>
+          </div>`).join('')}
+      </div>`;
+  } else if (adminTab === 'settings') {
+    tabHtml = `
+      <div class="admin-settings-panel">
+        <div class="settings-section">
+          <div class="settings-header">
+            <span style="font-size:1.3rem">&#129302;</span>
+            <h3>AI Image Matching &amp; Recognition</h3>
+          </div>
+          <div class="settings-item">
+            <div class="setting-info">
+              <div class="setting-title">Auto-Match Similarity Threshold</div>
+              <div class="setting-desc">Minimum visual similarity percentage required to automatically pair a garment with a customer batch without manual verification.</div>
+              <div class="range-slider-group">
+                <input type="range" id="thr-slider" min="50" max="99" value="${S.thr}" oninput="$('#thr').value=this.value">
+                <input type="number" id="thr" min="50" max="99" value="${S.thr}" oninput="$('#thr-slider').value=this.value">
+                <span style="font-weight:600">%</span>
+                <button class="btn-primary" style="width:auto;padding:8px 16px" onclick="saveThr()">SAVE</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-header">
+            <span style="font-size:1.3rem">&#128247;</span>
+            <h3>Camera &amp; Scanner Hardware</h3>
+          </div>
+          <div class="settings-item">
+            <div class="setting-info">
+              <div class="setting-title">Default Camera Source</div>
+              <div class="setting-desc">Preferred video camera device when scanning garments at Intake and Sorting stations.</div>
+            </div>
+            <div class="setting-ctrl">
+              <select id="cfg-cam-facing" onchange="updateCamPref(this.value)" style="width:auto;min-width:180px">
+                <option value="environment" ${(localStorage.getItem('cam_facing')||'environment')==='environment'?'selected':''}>Back (Environment)</option>
+                <option value="user" ${localStorage.getItem('cam_facing')==='user'?'selected':''}>Front (User)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-header">
+            <span style="font-size:1.3rem">&#128266;</span>
+            <h3>Audio &amp; Notification Alerts</h3>
+          </div>
+          <div class="settings-item">
+            <div class="setting-info">
+              <div class="setting-title">Sound Effects on Garment Match</div>
+              <div class="setting-desc">Play an audio tone when a garment is identified or flagged.</div>
+            </div>
+            <div class="setting-ctrl">
+              <label class="switch">
+                <input type="checkbox" id="cfg-sound" ${localStorage.getItem('sound_enabled')!=='false'?'checked':''} onchange="updateSoundPref(this.checked)">
+                <span class="slider-switch"></span>
+              </label>
+              <button type="button" class="btn-secondary" style="width:auto;padding:6px 12px;font-size:0.8rem" onclick="playMatchSound(true)">Test Sound</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-header">
+            <span style="font-size:1.3rem">&#127912;</span>
+            <h3>Appearance &amp; Display</h3>
+          </div>
+          <div class="settings-item">
+            <div class="setting-info">
+              <div class="setting-title">Interface Theme</div>
+              <div class="setting-desc">Switch between clean Light mode and sleek Dark mode.</div>
+            </div>
+            <div class="setting-ctrl">
+              <select id="cfg-theme" onchange="applyTheme(this.value)" style="width:auto;min-width:140px">
+                <option value="light" ${(localStorage.getItem('app_theme')||'light')==='light'?'selected':''}>Light</option>
+                <option value="dark" ${localStorage.getItem('app_theme')==='dark'?'selected':''}>Dark</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-header">
+            <span style="font-size:1.3rem">&#128421;</span>
+            <h3>System &amp; Database Information</h3>
+          </div>
+          <div class="info-grid">
+            <div class="info-tile"><div class="info-tile-val">Connected</div><div class="info-tile-lbl">Database</div></div>
+            <div class="info-tile"><div class="info-tile-val">${data.total_customers || 0}</div><div class="info-tile-lbl">Customers</div></div>
+            <div class="info-tile"><div class="info-tile-val">${data.total_batches || 0}</div><div class="info-tile-lbl">Batches</div></div>
+            <div class="info-tile"><div class="info-tile-val">${data.total_garments || 0}</div><div class="info-tile-lbl">Garments</div></div>
+            <div class="info-tile"><div class="info-tile-val">${S.users.length}</div><div class="info-tile-lbl">Users</div></div>
+            <div class="info-tile"><div class="info-tile-val">v6</div><div class="info-tile-lbl">Schema</div></div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  $('#admin-body').innerHTML = `
+    <div class="tabs admin-tabs">
+      <button class="tab ${adminTab === 'overview' ? 'active' : ''}" onclick="switchAdminTab('overview')">&#128202; Overview</button>
+      <button class="tab ${adminTab === 'users' ? 'active' : ''}" onclick="switchAdminTab('users')">&#128101; User Management (${S.users.length})</button>
+      <button class="tab ${adminTab === 'settings' ? 'active' : ''}" onclick="switchAdminTab('settings')">&#9881; Settings</button>
+    </div>
+    ${tabHtml}
+  `;
+}
+
 async function saveThr() {
   const v = +$('#thr').value;
   if (!(v >= 50 && v <= 99)) return toast('Enter a value from 50 to 99');
-  try { await api('api/admin.php?action=threshold', { method: 'POST', body: JSON.stringify({ thr: v }) }); S.thr = v; toast('Threshold saved'); }
+  try {
+    await api('api/admin.php?action=threshold', { method: 'POST', body: JSON.stringify({ thr: v }) });
+    S.thr = v;
+    toast('Threshold saved (' + v + '%)');
+    if ($('#thr-slider')) $('#thr-slider').value = v;
+  }
   catch (e) { toast('Not saved: ' + e.message); }
 }
+
+function renderSettings() {
+  const el = $('#settings-body');
+  if (!el) return;
+  const badge = $('#settings-role-badge');
+  if (badge && me) badge.textContent = me.role ? me.role.charAt(0).toUpperCase() + me.role.slice(1) : 'Preferences';
+
+  el.innerHTML = `
+    <div class="settings-section">
+      <div class="settings-header">
+        <span style="font-size:1.3rem">&#128247;</span>
+        <h3>Camera &amp; Scanner</h3>
+      </div>
+      <div class="settings-item">
+        <div class="setting-info">
+          <div class="setting-title">Camera Facing Mode</div>
+          <div class="setting-desc">Select which camera device to activate during garment Intake and Sorting.</div>
+        </div>
+        <div class="setting-ctrl">
+          <select id="stf-cam-facing" onchange="updateCamPref(this.value)" style="width:auto;min-width:180px">
+            <option value="environment" ${(localStorage.getItem('cam_facing')||'environment')==='environment'?'selected':''}>Back (Environment)</option>
+            <option value="user" ${localStorage.getItem('cam_facing')==='user'?'selected':''}>Front (User)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-header">
+        <span style="font-size:1.3rem">&#128266;</span>
+        <h3>Audio &amp; Scanner Alerts</h3>
+      </div>
+      <div class="settings-item">
+        <div class="setting-info">
+          <div class="setting-title">Sound Effects on Garment Recognition</div>
+          <div class="setting-desc">Plays an audible chime when garment is recognized or flagged.</div>
+        </div>
+        <div class="setting-ctrl">
+          <label class="switch">
+            <input type="checkbox" id="stf-sound" ${localStorage.getItem('sound_enabled')!=='false'?'checked':''} onchange="updateSoundPref(this.checked)">
+            <span class="slider-switch"></span>
+          </label>
+          <button type="button" class="btn-secondary" style="width:auto;padding:6px 12px;font-size:0.8rem" onclick="playMatchSound(true)">Test Sound</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-header">
+        <span style="font-size:1.3rem">&#127912;</span>
+        <h3>Appearance</h3>
+      </div>
+      <div class="settings-item">
+        <div class="setting-info">
+          <div class="setting-title">Theme</div>
+          <div class="setting-desc">Switch between Light and Dark interface modes.</div>
+        </div>
+        <div class="setting-ctrl">
+          <select id="stf-theme" onchange="applyTheme(this.value)" style="width:auto;min-width:140px">
+            <option value="light" ${(localStorage.getItem('app_theme')||'light')==='light'?'selected':''}>Light</option>
+            <option value="dark" ${localStorage.getItem('app_theme')==='dark'?'selected':''}>Dark</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-header">
+        <span style="font-size:1.3rem">&#128100;</span>
+        <h3>Account &amp; Profile</h3>
+      </div>
+      <div class="settings-item">
+        <div class="setting-info">
+          <div class="setting-title">${esc(me ? (me.name || me.u) : 'User')}</div>
+          <div class="setting-desc">Role: ${esc(me && me.role ? me.role.toUpperCase() : '')} &middot; Username: @${esc(me ? me.u : '')}</div>
+        </div>
+        <div class="setting-ctrl">
+          <button type="button" class="btn-primary" style="width:auto;padding:8px 16px" onclick="navigateTo('password')">Manage Profile</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
 function userForm(k) {
-  const u = k < 0 ? {id: -1, u:'', p:'', role:'staff', on:true} : S.users[k];
+  const u = k < 0 ? {id: -1, u:'', name:'', p:'', role:'staff', on:true} : S.users[k];
+  const isMe = me && (me.id === u.id || me.u === u.u);
   window._u = async () => {
-    const n = $('#uf-u').value.trim(), p = $('#uf-p').value, e = $('#uf-err');
+    const name = $('#uf-name').value.trim(), n = $('#uf-u').value.trim(), p = $('#uf-p').value, e = $('#uf-err');
+    if (!name) return e.textContent = 'Name is required.';
     if (!n) return e.textContent = 'Username is required.';
     if (k < 0 && p.length < 6) return e.textContent = 'Password must be at least 6 characters.';
     if (k >= 0 && p && p.length < 6) return e.textContent = 'Password must be at least 6 characters.';
     const on = $('#uf-on').checked, role = $('#uf-role').value;
-    if (k >= 0 && S.users[k]?.u === me?.u && (!on || role !== 'admin')) return e.textContent = "You can't deactivate or demote your own account.";
-    try { await api('api/admin.php?action=save_user', { method: 'POST', body: JSON.stringify({ id: u.id, u: n, p, role, on }) }); closeModal(); renderAdmin(); toast('User saved'); }
-    catch (err) { e.textContent = err.message || 'Failed to save user.'; }
+    if (k >= 0 && isMe && (!on || role !== 'admin')) return e.textContent = "You can't deactivate or demote your own account.";
+    try {
+      await api('api/admin.php?action=save_user', { method: 'POST', body: JSON.stringify({ id: u.id, u: n, name, p, role, on }) });
+      if (me && me.id === u.id) { me.name = name; me.u = n; }
+      closeModal();
+      renderAdmin();
+      toast('User saved');
+    } catch (err) { e.textContent = err.message || 'Failed to save user.'; }
   };
   modal(`<h3>${k < 0 ? 'Add User' : 'Edit User'}</h3>
-    <div class="form-group"><label>Username</label><input id="uf-u" value="${esc(u.u)}"></div>
+    <div class="form-group"><label>Name</label><input id="uf-name" value="${esc(u.name || '')}" placeholder="e.g. Sean Francis"></div>
+    <div class="form-group"><label>Username</label><input id="uf-u" value="${esc(u.u)}" placeholder="e.g. seanfrancis"></div>
     <div class="form-group"><label>Password ${k < 0 ? '' : '(leave blank to keep)'}</label><input type="password" id="uf-p"></div>
     <div class="form-group"><label>Role</label><select id="uf-role"><option value="staff" ${u.role === 'staff' ? 'selected' : ''}>Staff</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option></select></div>
     <label><input type="checkbox" class="check" id="uf-on" ${u.on ? 'checked' : ''}> Account active (untick to deactivate)</label>
     <p class="err" id="uf-err" style="margin-top:8px"></p>
-    <div class="btn-group"><button class="btn-secondary" onclick="closeModal()">CANCEL</button><button class="btn-primary" onclick="_u()">SAVE USER</button></div>`);
+    <div class="btn-group">
+      <button type="button" class="btn-secondary" onclick="closeModal()">CANCEL</button>
+      ${k >= 0 && !isMe ? `<button type="button" class="btn-danger-outline" onclick="removeUser(${k})">&#128465; DELETE</button>` : ''}
+      <button type="button" class="btn-primary" onclick="_u()">SAVE USER</button>
+    </div>`);
 }
+
+function removeUser(k) {
+  const u = S.users[k];
+  if (!u) return;
+  if (me && (me.id === u.id || me.u === u.u)) {
+    return toast("You cannot delete your own account.");
+  }
+  const displayName = u.name ? `${u.name} (@${u.u})` : `@${u.u}`;
+  confirmBox(`Are you sure you want to permanently delete user <b>${esc(displayName)}</b>?<br><span class="text-sm">This action cannot be undone.</span>`, async () => {
+    try {
+      await api('api/admin.php?action=delete_user', {
+        method: 'POST',
+        body: JSON.stringify({ id: u.id })
+      });
+      toast(`User "${u.name || u.u}" removed`);
+      await renderAdmin();
+    } catch (err) {
+      toast('Failed to delete user: ' + err.message);
+    }
+  });
+}
+
+/* ---------- profile picture ---------- */
+let avatarStream = null;
+
+function stopAvatarCam() {
+  if (avatarStream) {
+    try { avatarStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    avatarStream = null;
+  }
+}
+
+function openProfilePicModal() {
+  stopAvatarCam();
+  modal(`
+    <h3>Profile Picture</h3>
+    <p class="text-sm" style="margin-bottom:16px">Choose how you want to add your profile picture:</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button type="button" class="btn-primary" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;font-size:0.95rem" onclick="startAvatarCamera()">
+        <span style="font-size:1.2rem">&#128247;</span> Take Photo with Camera
+      </button>
+      <button type="button" class="btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;font-size:0.95rem" onclick="pickAvatarFile()">
+        <span style="font-size:1.2rem">&#128194;</span> Choose from Device
+      </button>
+      ${me && me.avatar ? `
+      <button type="button" class="btn-danger-outline btn-remove-pic" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:10px" onclick="removeProfilePic()">
+        &#128465; Remove Current Picture
+      </button>` : ''}
+    </div>
+    <div class="btn-group mt-2">
+      <button type="button" class="btn-secondary" onclick="closeModal()">CANCEL</button>
+    </div>
+  `);
+}
+
+function pickAvatarFile() {
+  closeModal();
+  const f = $('#pf-file');
+  if (f) {
+    f.value = '';
+    f.click();
+  }
+}
+
+async function startAvatarCamera() {
+  modal(`
+    <h3>Take Profile Photo</h3>
+    <div class="camera-preview live" style="height:260px;position:relative;border-radius:6px;overflow:hidden;background:#000;margin:12px 0">
+      <video id="pf-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1)"></video>
+      <p class="cam-msg" id="pf-cam-msg" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:12px">Starting camera&hellip;</p>
+    </div>
+    <div class="btn-group">
+      <button type="button" class="btn-secondary" onclick="stopAvatarCam();openProfilePicModal()">&larr; BACK</button>
+      <button type="button" class="btn-primary" id="pf-snap-btn" disabled onclick="snapAvatarPhoto()">&#128248; SNAP PHOTO</button>
+    </div>
+  `);
+
+  const video = $('#pf-video');
+  const msg = $('#pf-cam-msg');
+  const snapBtn = $('#pf-snap-btn');
+
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera API not supported in this browser.');
+    avatarStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } }
+    });
+    if (video) {
+      video.srcObject = avatarStream;
+      video.onloadedmetadata = () => {
+        if (msg) msg.style.display = 'none';
+        if (snapBtn) snapBtn.disabled = false;
+      };
+      setTimeout(() => {
+        if (video.videoWidth) {
+          if (msg) msg.style.display = 'none';
+          if (snapBtn) snapBtn.disabled = false;
+        }
+      }, 500);
+    }
+  } catch (err) {
+    if (msg) {
+      msg.innerHTML = '&#9888; Camera unavailable or access denied.<br><br><span style="font-size:0.8rem">Allow camera permission in your browser or use "Choose from Device".</span>';
+    }
+    if (snapBtn) snapBtn.disabled = true;
+  }
+}
+
+function snapAvatarPhoto() {
+  const video = $('#pf-video');
+  if (!video || !avatarStream || !video.videoWidth) return;
+
+  const size = 300;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+
+  // Mirror effect so it matches what user sees on screen
+  ctx.translate(size, 0);
+  ctx.scale(-1, 1);
+
+  const minDim = Math.min(video.videoWidth, video.videoHeight);
+  const sx = (video.videoWidth - minDim) / 2;
+  const sy = (video.videoHeight - minDim) / 2;
+  ctx.drawImage(video, sx, sy, minDim, minDim, 0, 0, size, size);
+
+  const dataUri = c.toDataURL('image/jpeg', 0.88);
+  stopAvatarCam();
+
+  window._snappedPhotoUri = dataUri;
+
+  // Show preview confirmation modal
+  modal(`
+    <h3>Confirm Profile Photo</h3>
+    <div style="text-align:center;margin:16px 0">
+      <img src="${dataUri}" style="width:130px;height:130px;border-radius:50%;object-fit:cover;border:3px solid var(--btn-primary);box-shadow:0 3px 10px rgba(0,0,0,0.15)">
+      <p class="text-sm mt-2">Looks good? Click "Save Photo" to apply.</p>
+    </div>
+    <div class="btn-group">
+      <button type="button" class="btn-secondary" onclick="startAvatarCamera()">RETAKE</button>
+      <button type="button" class="btn-primary" onclick="confirmSaveSnappedPhoto()">&#10003; SAVE PHOTO</button>
+    </div>
+  `);
+}
+
+function confirmSaveSnappedPhoto() {
+  const uri = window._snappedPhotoUri;
+  closeModal();
+  if (uri) uploadProfilePic(uri);
+}
+
+function renderProfileAvatar() {
+  const imgEl = $('#pf-avatar-img');
+  const phEl = $('#pf-avatar-placeholder');
+  const rmBtn = $('#btn-remove-avatar');
+  const upBtn = $('.btn-upload-pic');
+  const nameEl = $('#pf-display-name');
+  const roleEl = $('#pf-display-role');
+
+  if (me) {
+    if (nameEl) nameEl.textContent = me.name || me.u || 'User';
+    if (roleEl) roleEl.textContent = me.role ? me.role.charAt(0).toUpperCase() + me.role.slice(1) : '';
+    if ($('#pf-name')) $('#pf-name').value = me.name || me.u || '';
+  }
+
+  if (me && me.avatar) {
+    imgEl.src = me.avatar + '?t=' + Date.now();
+    imgEl.classList.remove('hidden');
+    phEl.classList.add('hidden');
+    if (rmBtn) rmBtn.classList.remove('hidden');
+    if (upBtn) upBtn.innerHTML = '&#128247; CHANGE PICTURE';
+  } else {
+    imgEl.src = '';
+    imgEl.classList.add('hidden');
+    phEl.classList.remove('hidden');
+    if (rmBtn) rmBtn.classList.add('hidden');
+    if (upBtn) upBtn.innerHTML = '&#128247; ADD PROFILE PICTURE';
+  }
+}
+
+async function uploadProfilePic(dataUri) {
+  try {
+    toast('Saving profile picture...');
+    const res = await api('api/auth.php?action=update_avatar', {
+      method: 'POST',
+      body: JSON.stringify({ avatar: dataUri })
+    });
+    if (me) me.avatar = res.avatar;
+    renderProfileAvatar();
+    buildNav();
+    toast(res.message || 'Profile picture updated!');
+  } catch (err) {
+    toast('Failed to upload picture: ' + err.message);
+  }
+}
+
+function removeProfilePic() {
+  closeModal();
+  confirmBox('Remove your current profile picture?', async () => {
+    try {
+      const res = await api('api/auth.php?action=update_avatar', {
+        method: 'POST',
+        body: JSON.stringify({ remove: true })
+      });
+      if (me) me.avatar = null;
+      renderProfileAvatar();
+      buildNav();
+      toast(res.message || 'Profile picture removed');
+    } catch (err) {
+      toast('Failed to remove picture: ' + err.message);
+    }
+  });
+}
+
+// Profile picture file picker handler
+function handleAvatarFileSelect(f) {
+  if (!f) return;
+  if (!f.type.startsWith('image/')) {
+    return toast('Please select an image file (JPG, PNG, WebP).');
+  }
+  if (f.size > 8 * 1024 * 1024) {
+    return toast('Image size exceeds 8MB. Please select a smaller file.');
+  }
+  const r = new FileReader();
+  r.onload = () => {
+    const im = new Image();
+    im.onload = () => {
+      const size = 300;
+      const c = document.createElement('canvas');
+      c.width = size;
+      c.height = size;
+      const ctx = c.getContext('2d');
+      const minDim = Math.min(im.width, im.height);
+      const sx = (im.width - minDim) / 2;
+      const sy = (im.height - minDim) / 2;
+      ctx.drawImage(im, sx, sy, minDim, minDim, 0, 0, size, size);
+      uploadProfilePic(c.toDataURL('image/jpeg', 0.88));
+    };
+    im.src = r.result;
+  };
+  r.readAsDataURL(f);
+}
+
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'pf-file') {
+    handleAvatarFileSelect(e.target.files[0]);
+  }
+});
+
+// Auto-restore session on page load
+async function initSession() {
+  try {
+    const res = await api('api/auth.php?action=me');
+    if (res.user) {
+      me = res.user;
+      $('#sidebar').classList.remove('hidden');
+      navigateTo(HOME());
+    }
+  } catch (e) {}
+}
+initSession();
+

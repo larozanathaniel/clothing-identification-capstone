@@ -49,7 +49,7 @@ try {
 // ── One-time schema upgrade ────────────────────────────────────────────────
 // Runs ONLY when settings.schema_v is below SCHEMA_VERSION, so it no longer
 // touches the database (or resets passwords) on every request.
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 6;
 
 function column_exists($pdo, $table, $col) {
     // SHOW statements cannot take bound parameters, so the value is quoted instead
@@ -97,6 +97,10 @@ function init_app($pdo) {
             ADD COLUMN `garment_name` VARCHAR(100) NOT NULL DEFAULT 'Item'
             AFTER `garment_id`");
     }
+    if (!column_exists($pdo, 'users', 'full_name')) {
+        $pdo->exec("ALTER TABLE `users`
+            ADD COLUMN `full_name` VARCHAR(100) NOT NULL DEFAULT '' AFTER `username`");
+    }
     if (!column_exists($pdo, 'users', 'on_status')) {
         $pdo->exec("ALTER TABLE `users`
             ADD COLUMN `on_status` TINYINT(1) NOT NULL DEFAULT 1 AFTER `role`");
@@ -104,6 +108,10 @@ function init_app($pdo) {
     if (!column_exists($pdo, 'users', 'plain_password')) {
         $pdo->exec("ALTER TABLE `users`
             ADD COLUMN `plain_password` VARCHAR(255) NOT NULL DEFAULT '' AFTER `password_hash`");
+    }
+    if (!column_exists($pdo, 'users', 'avatar')) {
+        $pdo->exec("ALTER TABLE `users`
+            ADD COLUMN `avatar` VARCHAR(255) NULL AFTER `role`");
     }
 
     // v4 workflow: no Washing / Ready-to-Sort steps. A batch is simply Open or Completed.

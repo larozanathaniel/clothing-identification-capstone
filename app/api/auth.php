@@ -15,8 +15,8 @@ switch ($action) {
 
         // Match against plain_password (dev/capstone mode)
         $stmt = $pdo->prepare(
-            "SELECT user_id AS id, username AS u, plain_password AS p,
-                    role, on_status
+            "SELECT user_id AS id, username AS u, full_name, plain_password AS p,
+                    role, on_status, avatar
              FROM users
              WHERE username = ? AND plain_password = ?"
         );
@@ -30,18 +30,22 @@ switch ($action) {
             send_json(['error' => 'This account is deactivated. Contact an admin.'], 403);
         }
 
-        $_SESSION['user_id']  = $user['id'];
-        $_SESSION['username'] = $user['u'];
-        $_SESSION['role']     = strtolower($user['role']); // normalize to lowercase
+        $_SESSION['user_id']   = $user['id'];
+        $_SESSION['username']  = $user['u'];
+        $_SESSION['full_name'] = $user['full_name'] ?? '';
+        $_SESSION['role']      = strtolower($user['role']); // normalize to lowercase
+        $_SESSION['avatar']    = $user['avatar'] ?? null;
 
         send_json([
             'success' => true,
             'user' => [
-                'id'   => (int)$user['id'],
-                'u'    => $user['u'],
-                'p'    => $user['p'],
-                'role' => strtolower($user['role']),
-                'on'   => (bool)$user['on_status']
+                'id'     => (int)$user['id'],
+                'u'      => $user['u'],
+                'name'   => $user['full_name'] ?: $user['u'],
+                'p'      => $user['p'],
+                'role'   => strtolower($user['role']),
+                'on'     => (bool)$user['on_status'],
+                'avatar' => $user['avatar'] ?? null
             ]
         ]);
         break;
@@ -56,8 +60,8 @@ switch ($action) {
             send_json(['user' => null]);
         }
         $stmt = $pdo->prepare(
-            "SELECT user_id AS id, username AS u, plain_password AS p,
-                    role, on_status
+            "SELECT user_id AS id, username AS u, full_name, plain_password AS p,
+                    role, on_status, avatar
              FROM users WHERE username = ?"
         );
         $stmt->execute([$_SESSION['username']]);
@@ -68,11 +72,13 @@ switch ($action) {
         }
         send_json([
             'user' => [
-                'id'   => (int)$user['id'],
-                'u'    => $user['u'],
-                'p'    => $user['p'],
-                'role' => strtolower($user['role']),
-                'on'   => (bool)$user['on_status']
+                'id'     => (int)$user['id'],
+                'u'      => $user['u'],
+                'name'   => $user['full_name'] ?: $user['u'],
+                'p'      => $user['p'],
+                'role'   => strtolower($user['role']),
+                'on'     => (bool)$user['on_status'],
+                'avatar' => $user['avatar'] ?? null
             ]
         ]);
         break;
@@ -88,7 +94,7 @@ switch ($action) {
 
         $stmt = $pdo->prepare(
             "SELECT user_id AS id, plain_password AS p
-             FROM users WHERE username = ?"
+              FROM users WHERE username = ?"
         );
         $stmt->execute([$_SESSION['username']]);
         $user = $stmt->fetch();
@@ -109,6 +115,46 @@ switch ($action) {
         );
         $upd->execute([$new, password_hash($new, PASSWORD_DEFAULT), $user['id']]);
         send_json(['success' => true, 'message' => 'Password updated successfully']);
+        break;
+
+    case 'update_avatar':
+        if (!isset($_SESSION['username'])) {
+            send_json(['error' => 'Not authenticated'], 401);
+        }
+        $data       = get_json_input();
+        $avatarData = $data['avatar'] ?? null;
+        $remove     = !empty($data['remove']);
+
+        $stmt = $pdo->prepare("SELECT user_id, avatar FROM users WHERE username = ?");
+        $stmt->execute([$_SESSION['username']]);
+        $user = $stmt->fetch();
+        if (!$user) send_json(['error' => 'User not found'], 404);
+
+        $oldAvatar     = $user['avatar'];
+        $newAvatarPath = null;
+
+        if (!$remove && $avatarData) {
+            $newAvatarPath = save_data_uri_image($avatarData, 'avatars');
+            if (!$newAvatarPath) {
+                send_json(['error' => 'Invalid image format. Please upload a valid JPG, PNG, or WebP image.'], 400);
+            }
+        }
+
+        $upd = $pdo->prepare("UPDATE users SET avatar = ? WHERE user_id = ?");
+        $upd->execute([$newAvatarPath, $user['user_id']]);
+
+        // Delete previous avatar file if replaced or removed
+        if ($oldAvatar && $oldAvatar !== $newAvatarPath) {
+            delete_upload($oldAvatar);
+        }
+
+        $_SESSION['avatar'] = $newAvatarPath;
+
+        send_json([
+            'success' => true,
+            'avatar'  => $newAvatarPath,
+            'message' => $newAvatarPath ? 'Profile picture updated' : 'Profile picture removed'
+        ]);
         break;
 
     default:

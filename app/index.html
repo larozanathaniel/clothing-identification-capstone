@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Intelligent Laundry Management System</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
     <div id="app">
@@ -116,6 +119,32 @@
             <section id="password-screen" class="screen">
                 <div class="header-bar"><h2>PROFILE</h2><span class="badge role-badge" id="pw-role"></span></div>
                 <div class="card">
+                    <!-- Profile Picture Section -->
+                    <div class="profile-pic-section">
+                        <div class="profile-avatar-container" id="pf-avatar-container" onclick="openProfilePicModal()" title="Click to add or change profile picture">
+                            <img id="pf-avatar-img" src="" alt="Profile Picture" class="profile-avatar-img hidden">
+                            <div id="pf-avatar-placeholder" class="profile-avatar-placeholder">&#128100;</div>
+                            <div class="avatar-overlay">&#128247;</div>
+                        </div>
+                        <div class="profile-pic-info">
+                            <div class="profile-user-display">
+                                <h3 id="pf-display-name" class="profile-display-name">User</h3>
+                                <span class="badge role-badge" id="pf-display-role">Staff</span>
+                            </div>
+                            <div class="profile-pic-actions">
+                                <button type="button" class="btn-secondary btn-upload-pic" onclick="openProfilePicModal()">
+                                    &#128247; ADD PROFILE PICTURE
+                                </button>
+                                <button type="button" class="btn-danger-outline btn-remove-pic hidden" id="btn-remove-avatar" onclick="removeProfilePic()">
+                                    Remove
+                                </button>
+                            </div>
+                            <p class="profile-pic-hint">JPG, PNG or WebP. Max 8MB.</p>
+                        </div>
+                    </div>
+                    <input type="file" id="pf-file" accept="image/*" style="display:none">
+
+                    <div class="form-group"><label>Name</label><input type="text" id="pf-name" readonly></div>
                     <div class="form-group"><label>Username</label><input type="text" id="pf-user" readonly></div>
                     <p class="text-sm" style="margin-bottom:12px">Change password</p>
                     <div class="form-group"><label>Current Password</label><input type="password" id="pw-old"></div>
@@ -126,11 +155,17 @@
                 </div>
             </section>
 
+            <!-- Settings -->
+            <section id="settings-screen" class="screen">
+                <div class="header-bar"><h2>SETTINGS</h2><span class="badge role-badge" id="settings-role-badge">Preferences</span></div>
+                <div class="card" id="settings-body"></div>
+            </section>
+
         </main>
         <div id="modal" class="modal hidden"><div class="modal-box" id="modal-box"></div></div>
         <div id="toast" class="toast hidden"></div>
         <input type="file" id="file" accept="image/*" hidden>
     </div>
-    <script src="script.js"></script>
+    <script src="script.js?v=7"></script>
 </body>
 </html>
